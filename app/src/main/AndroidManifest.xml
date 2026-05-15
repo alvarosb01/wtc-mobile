@@ -11,7 +11,8 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.WTC">
+        android:theme="@style/Theme.WTC"
+        android:usesCleartextTraffic="true">
 
         <!-- Tela inicial -->
         <activity
@@ -31,6 +32,14 @@
             android:exported="true"
             android:label="Login"
             android:theme="@style/Theme.WTC" />
+
+        <activity
+            android:name=".CadastroClienteActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".CadastroUsuarioActivity"
+            android:exported="false" />
 
         <activity
             android:name=".HomeActivity"

@@ -1,6 +1,8 @@
 package br.com.fiap.wtcapp
 
+import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -13,11 +15,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.fiap.wtcapp.ui.theme.WTCTheme
-import androidx.compose.foundation.layout.FlowRow
+import br.com.fiap.wtcapp.model.CustomerResponse
+import br.com.fiap.wtcapp.network.RetrofitClient
+import br.com.fiap.wtcapp.network.TokenManager
+import kotlinx.coroutines.launch
 
 class ContatosActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,18 +41,54 @@ class ContatosActivity : ComponentActivity() {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ContatosScreen() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // 1. Instancia o TokenManager para ler a Role salva no Login
+    val tokenManager = TokenManager(context)
+    val roleUsuario = tokenManager.getRole() ?: "CLIENTE"
+
+    // Estados da UI
     var busca by remember { mutableStateOf("") }
     var filtroSelecionado by remember { mutableStateOf("Todos") }
 
-    val contatos = listOf(
-        Cliente("Ana Souza", "ana@email.com", "Ativa", listOf("VIP"), 92),
-        Cliente("Carlos Lima", "carlos@email.com", "Inativo", listOf("Recente"), 65),
-        Cliente("Fernanda Rocha", "fernanda@email.com", "Ativa", listOf("Fidelidade"), 88)
-    )
+    // Estados de Dados (Vindo da API)
+    var listaClientes by remember { mutableStateOf(listOf<CustomerResponse>()) }
+    var isLoading by remember { mutableStateOf(true) }
 
-    val contatosFiltrados = contatos.filter {
-        (filtroSelecionado == "Todos" || it.status == filtroSelecionado || it.tags.contains(filtroSelecionado)) &&
-                (busca.isBlank() || it.nome.contains(busca, ignoreCase = true) || it.email.contains(busca, ignoreCase = true))
+    // --- BUSCA OS DADOS NO SPRING ---
+    LaunchedEffect(Unit) {
+        scope.launch {
+            try {
+                val service = RetrofitClient.getCustomerService(context)
+                val response = service.listCustomers(page = 0, size = 50)
+
+                if (response.isSuccessful) {
+                    listaClientes = response.body()?.content ?: listOf()
+                } else {
+                    Toast.makeText(context, "Erro ao carregar empresas", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Falha na conexão: ${e.message}", Toast.LENGTH_LONG).show()
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
+    // --- LÓGICA DE FILTRO LOCAL ---
+    val clientesFiltrados = listaClientes.filter { cliente ->
+        val atendeFiltro = when (filtroSelecionado) {
+            "VIP" -> cliente.vip
+            "Fidelidade" -> cliente.fidelidade
+            "Ativa" -> cliente.ativo
+            "Inativo" -> !cliente.ativo
+            else -> true // "Todos"
+        }
+        val atendeBusca = cliente.name.contains(busca, ignoreCase = true) ||
+                cliente.document.contains(busca, ignoreCase = true)
+
+        atendeFiltro && atendeBusca
     }
 
     Column(
@@ -56,29 +98,28 @@ fun ContatosScreen() {
             .padding(24.dp)
     ) {
         Text(
-            text = "Contatos",
+            text = "Clientes (WTC)",
             fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
             color = Color(0xFF1976D2),
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
-        // 🔍 Campo de busca
         OutlinedTextField(
             value = busca,
             onValueChange = { busca = it },
-            label = { Text("Buscar por nome ou e-mail") },
+            label = { Text("Buscar empresa ou documento") },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(12.dp),
+            enabled = !isLoading
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 🏷️ Filtros centralizados com quebra automática
         FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp) // antes era 8.dp
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             listOf("Todos", "VIP", "Fidelidade", "Ativa", "Inativo").forEach { filtro ->
                 FilterChip(
@@ -91,26 +132,48 @@ fun ContatosScreen() {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // 📋 Lista com scroll
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(contatosFiltrados) { cliente ->
-                ContactCard(cliente)
+        if (isLoading) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Color(0xFF1976D2))
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(clientesFiltrados) { cliente ->
+                    ContactCard(cliente)
+                }
             }
         }
 
-        // ➕ Botão de adicionar contato
-        Button(
-            onClick = { /* ação futura */ },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0))
-        ) {
-            Text("Adicionar Contato", color = Color.White, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // --- TRAVA DE SEGURANÇA VISUAL (RBAC) ---
+        // Só renderiza o botão se a role for OPERADOR (independente de maiúscula/minúscula)
+        if (roleUsuario.equals("OPERADOR", ignoreCase = true)) {
+            Button(
+                onClick = {
+                    val intent = Intent(context, CadastroClienteActivity::class.java)
+                    context.startActivity(intent)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0))
+            ) {
+                Text("Adicionar Nova Empresa", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+        } else {
+            // Se for CLIENTE, mostra apenas um texto informativo opcional
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "Acesso de consulta: Perfil $roleUsuario",
+                    color = Color.Gray,
+                    fontSize = 12.sp
+                )
+            }
         }
     }
 }
@@ -128,17 +191,13 @@ fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
     )
 }
 
-data class Cliente(
-    val nome: String,
-    val email: String,
-    val status: String,
-    val tags: List<String>,
-    val score: Int
-)
-
 @Composable
-fun ContactCard(cliente: Cliente) {
+fun ContactCard(cliente: CustomerResponse) {
     var anotacao by remember { mutableStateOf("") }
+
+    val tags = mutableListOf<String>()
+    if (cliente.vip) tags.add("VIP")
+    if (cliente.fidelidade) tags.add("Fidelidade")
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -147,21 +206,29 @@ fun ContactCard(cliente: Cliente) {
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(cliente.nome, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1976D2))
-            Text(cliente.email, fontSize = 14.sp, color = Color(0xFF555555))
+            Text(cliente.name, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1976D2))
+            Text("Doc: ${cliente.document}", fontSize = 14.sp, color = Color(0xFF555555))
+
             Spacer(modifier = Modifier.height(4.dp))
+
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Status: ${cliente.status}", fontSize = 12.sp, color = Color(0xFF999999))
-                Text("Score: ${cliente.score}", fontSize = 12.sp, color = Color(0xFF999999))
+                Text(
+                    text = if (cliente.ativo) "Status: Ativa" else "Status: Inativa",
+                    fontSize = 12.sp,
+                    color = if (cliente.ativo) Color(0xFF4CAF50) else Color.Red
+                )
             }
-            Text("Tags: ${cliente.tags.joinToString()}", fontSize = 12.sp, color = Color(0xFF999999))
+
+            if (tags.isNotEmpty()) {
+                Text("Tags: ${tags.joinToString()}", fontSize = 12.sp, color = Color(0xFF999999))
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
 
             OutlinedTextField(
                 value = anotacao,
                 onValueChange = { anotacao = it },
-                label = { Text("Anotação rápida") },
+                label = { Text("Nota comercial interna") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
                 singleLine = true

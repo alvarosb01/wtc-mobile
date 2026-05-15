@@ -60,6 +60,10 @@ dependencies {
     debugImplementation(libs.androidx.ui.test.manifest)
     dependencies {
         implementation("com.google.firebase:firebase-messaging:23.4.1")
+        // Retrofit para chamadas HTTP
+        implementation("com.squareup.retrofit2:retrofit:2.9.0")
+// Gson Converter para o Retrofit entender JSON e Records/Data Classes
+        implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     }
 }
 
