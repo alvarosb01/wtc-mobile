@@ -112,29 +112,28 @@ fun LoginScreen() {
 
                             if (response.isSuccessful) {
                                 val loginResponse = response.body()
-                                val token = loginResponse?.token
-                                val role = loginResponse?.role
 
-                                if (token != null && role != null) {
-                                    // 1. Salva a Sessão Completa (Token + Role)
+                                if (loginResponse != null) {
+                                    val token = loginResponse.token
+                                    val role = loginResponse.role
+                                    val idDoBanco = loginResponse.userId // <--- PEGAMOS O ID QUE VEIO DO JAVA
+
                                     val tokenManager = TokenManager(context)
-                                    tokenManager.saveSession(token, role, userId = String() )
 
-                                    println("LOGIN SUCESSO: Role $role salva")
+                                    // 2. SALVAMOS O ID REAL QUE VEIO DO SERVIDOR (Não use String()!)
+                                    tokenManager.saveSession(token, role, idDoBanco)
+
+                                    println("LOGIN SUCESSO: Role $role e ID $idDoBanco salvos")
 
                                     Toast.makeText(context, "Bem-vindo!", Toast.LENGTH_SHORT).show()
-
-                                    // 2. Navega para a Home
                                     context.startActivity(Intent(context, HomeActivity::class.java))
                                     (context as? Activity)?.finish()
-                                } else {
-                                    Toast.makeText(context, "Erro nos dados recebidos do servidor", Toast.LENGTH_SHORT).show()
                                 }
                             } else {
                                 Toast.makeText(context, "Credenciais inválidas", Toast.LENGTH_LONG).show()
                             }
                         } catch (e: Exception) {
-                            Toast.makeText(context, "Erro de conexão: ${e.message}", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Erro: ${e.message}", Toast.LENGTH_LONG).show()
                         } finally {
                             isLoading = false
                         }

@@ -7,8 +7,10 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material3.*
@@ -40,173 +42,120 @@ class HomeActivity : ComponentActivity() {
 fun HomeScreen() {
     val context = LocalContext.current
     val tokenManager = TokenManager(context)
+    val role = tokenManager.getRole() ?: "CLIENTE"
+    val meuId = tokenManager.getUserId() ?: ""
+    val isOperador = role.equals("OPERADOR", ignoreCase = true)
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.White)
-    ) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(24.dp)
+                .verticalScroll(rememberScrollState())
         ) {
-            // 🔷 Cabeçalho com Nome do Hub e Logout
+            // 🔷 Cabeçalho
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
-                    Text(
-                        text = "WTC Business",
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1976D2)
-                    )
-                    Text(
-                        text = "São Paulo Smart Hub",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF1976D2).copy(alpha = 0.7f)
-                    )
+                    Text("WTC Business", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1976D2))
+                    Text("Perfil: $role", fontSize = 12.sp, color = Color.Gray)
                 }
-
-                // BOTÃO DE LOGOUT (FUNDAMENTAL PARA TROCA DE PERFIL)
                 IconButton(onClick = {
-                    tokenManager.logout() // Limpa Token e Role
+                    tokenManager.logout()
                     val intent = Intent(context, LoginActivity::class.java)
-                    // Limpa a pilha de telas para segurança
                     intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                     context.startActivity(intent)
                 }) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ExitToApp,
-                        contentDescription = "Logout",
-                        tint = Color(0xFFD32F2F) // Vermelho para indicar saída
-                    )
+                    Icon(Icons.AutoMirrored.Filled.ExitToApp, "Sair", tint = Color.Red)
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Bem-vindo ao hub estratégico. Otimize sua prospecção e gestão de relacionamento corporativo.",
-                fontSize = 14.sp,
-                color = Color(0xFF555555),
-                lineHeight = 20.sp
-            )
-
             Spacer(modifier = Modifier.height(32.dp))
 
-            // 🔷 Menu de Operações B2B
-            Column(modifier = Modifier.fillMaxWidth()) {
+            // 🔷 OPÇÕES DE MENU
+
+            // 1. CANAIS DE ATENDIMENTO (Para todos, mas com lógica diferente)
+            MenuOption(
+                title = "Canais de Atendimento",
+                description = "Comunicação estratégica 1:1",
+                emoji = "💬",
+                onClick = {
+                    if (isOperador) {
+                        context.startActivity(Intent(context, ConversasActivity::class.java))
+                    } else {
+                        val intent = Intent(context, MensagensActivity::class.java)
+                        intent.putExtra("CLIENTE_ID", meuId)
+                        intent.putExtra("CLIENTE_NOME", "Suporte WTC")
+                        context.startActivity(intent)
+                    }
+                }
+            )
+
+            // 2. GESTÃO DE CLIENTES (Só Operador vê)
+            if (isOperador) {
+                Spacer(modifier = Modifier.height(16.dp))
                 MenuOption(
                     title = "Gestão de Clientes",
-                    description = "Visualização de carteira e prospecção ativa",
+                    description = "Carteira de empresas e prospecção",
                     emoji = "🏢",
-                    onClick = {
-                        context.startActivity(Intent(context, ContatosActivity::class.java))
-                    }
+                    onClick = { context.startActivity(Intent(context, ContatosActivity::class.java)) }
                 )
 
+                // 3. AÇÕES & CAMPANHAS
                 Spacer(modifier = Modifier.height(16.dp))
-
-                MenuOption(
-                    title = "Canais de Atendimento",
-                    description = "Comunicação direta 1:1 e suporte",
-                    emoji = "💬",
-                    onClick = {
-                        context.startActivity(Intent(context, ConversasActivity::class.java))
-                    }
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
                 MenuOption(
                     title = "Ações & Campanhas",
-                    description = "Disparos estratégicos e métricas de envio",
+                    description = "Disparos estratégicos e métricas",
                     emoji = "🚀",
-                    onClick = {
-                        context.startActivity(Intent(context, CampanhasActivity::class.java))
-                    }
+                    onClick = { context.startActivity(Intent(context, CampanhasActivity::class.java)) }
                 )
 
+                // 4. INTELIGÊNCIA DE MERCADO
                 Spacer(modifier = Modifier.height(16.dp))
-
                 MenuOption(
                     title = "Inteligência de Mercado",
-                    description = "Segmentação por tags, score e setores",
+                    description = "Segmentação e score de clientes",
                     emoji = "📊",
-                    onClick = {
-                        context.startActivity(Intent(context, SegmentosActivity::class.java))
-                    }
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                MenuOption(
-                    title = "Central de Notificações",
-                    description = "Monitoramento de interações e alertas",
-                    emoji = "🔔",
-                    onClick = {
-                        context.startActivity(Intent(context, MensagensActivity::class.java))
-                    }
+                    onClick = { context.startActivity(Intent(context, SegmentosActivity::class.java)) }
                 )
             }
-        }
 
-        // 🔻 Rodapé institucional
-        Text(
-            text = "© 2025 WTC São Paulo Business Hub",
-            fontSize = 11.sp,
-            color = Color(0xFF999999),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 12.dp)
-        )
+            // 5. CENTRAL DE NOTIFICAÇÕES (Para todos)
+            Spacer(modifier = Modifier.height(16.dp))
+            MenuOption(
+                title = "Central de Notificações",
+                description = "Alertas e interações recentes",
+                emoji = "🔔",
+                onClick = {
+                    val intent = Intent(context, MensagensActivity::class.java)
+                    intent.putExtra("CLIENTE_ID", meuId)
+                    intent.putExtra("CLIENTE_NOME", "Notificações")
+                    context.startActivity(intent)
+                }
+            )
+        }
     }
 }
 
 @Composable
 fun MenuOption(title: String, description: String, emoji: String, onClick: () -> Unit) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F9FA)),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(Color(0xFF1976D2), shape = CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(text = emoji, fontSize = 22.sp)
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(48.dp).background(Color(0xFF1976D2), CircleShape), contentAlignment = Alignment.Center) {
+                Text(emoji, fontSize = 22.sp)
             }
-
             Spacer(modifier = Modifier.width(16.dp))
-
             Column {
-                Text(
-                    text = title,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1976D2)
-                )
-                Text(
-                    text = description,
-                    fontSize = 12.sp,
-                    color = Color(0xFF666666)
-                )
+                Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1976D2))
+                Text(description, fontSize = 12.sp, color = Color.Gray)
             }
         }
     }

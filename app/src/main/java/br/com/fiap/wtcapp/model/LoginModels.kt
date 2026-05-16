@@ -9,6 +9,6 @@ data class LoginRequest(
 
 data class LoginResponse(
     val token: String,
-    val role: String, // Garanta que o Java envie "OPERADOR" ou "CLIENTE"
+    val role: String,
     val userId: String
 )

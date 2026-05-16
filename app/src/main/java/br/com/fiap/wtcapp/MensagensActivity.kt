@@ -32,132 +32,118 @@ import kotlinx.coroutines.launch
 class MensagensActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Dados vindos da tela anterior (usado pelo Operador)
-        val clienteIdDaLista = intent.getStringExtra("CLIENTE_ID") ?: ""
-        val clienteNomeDaLista = intent.getStringExtra("CLIENTE_NOME") ?: "Central de Atendimento"
-
-        setContent {
-            WTCTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    MensagensScreen(clienteIdDaLista, clienteNomeDaLista)
-                }
-            }
-        }
+        val idIntent = intent.getStringExtra("CLIENTE_ID") ?: ""
+        val nomeIntent = intent.getStringExtra("CLIENTE_NOME") ?: "Conversa"
+        setContent { WTCTheme { Surface { MensagensScreen(idIntent, nomeIntent) } } }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MensagensScreen(clienteIdDaLista: String, clienteNomeDaLista: String) {
+fun MensagensScreen(idVindoDaIntent: String, nomeVindoDaIntent: String) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val tokenManager = TokenManager(context)
 
-    // Identificação do Usuário Logado
     val minhaRole = tokenManager.getRole() ?: "CLIENTE"
     val meuId = tokenManager.getUserId() ?: ""
 
-    // LÓGICA DE ID: Se for Operador, usa quem ele clicou. Se for Cliente, usa o próprio ID dele.
-    val idConversaReal = if (minhaRole.equals("OPERADOR", ignoreCase = true)) clienteIdDaLista else meuId
-    val tituloTela = if (minhaRole.equals("OPERADOR", ignoreCase = true)) clienteNomeDaLista else "Suporte WTC"
+    // Define qual ID usar para o GET e POST
+    val idConversaReal = if (minhaRole.equals("OPERADOR", ignoreCase = true)) idVindoDaIntent else meuId
 
     var listaMensagens by remember { mutableStateOf(listOf<MessageResponse>()) }
     var textoMensagem by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
 
-    fun carregarMensagens() {
+    fun carregar() {
+        if (idConversaReal.isBlank()) {
+            isLoading = false
+            return
+        }
         scope.launch {
             try {
                 val service = RetrofitClient.getMessageService(context)
                 val response = service.getHistorico(idConversaReal)
                 if (response.isSuccessful) {
-                    listaMensagens = response.body() ?: listOf()
+                    val mgs = response.body() ?: listOf()
+                    listaMensagens = mgs
+                    Log.d("WTC_DEBUG", "Mensagens carregadas: ${mgs.size}")
                     if (listaMensagens.isNotEmpty()) {
                         listState.animateScrollToItem(listaMensagens.size - 1)
                     }
                 }
             } catch (e: Exception) {
-                Log.e("WTC_ERROR", "Falha ao carregar: ${e.message}")
+                Log.e("WTC_DEBUG", "Erro ao carregar: ${e.message}")
             } finally {
                 isLoading = false
             }
         }
     }
 
-    LaunchedEffect(Unit) {
-        carregarMensagens()
-    }
+    LaunchedEffect(Unit) { carregar() }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(tituloTela, color = Color.White, fontWeight = FontWeight.Bold) },
+                title = { Text(nomeVindoDaIntent, color = Color.White, fontWeight = FontWeight.Bold) },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF1976D2))
             )
         },
         bottomBar = {
             Surface(tonalElevation = 8.dp, modifier = Modifier.imePadding()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = textoMensagem,
                         onValueChange = { textoMensagem = it },
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text("Digite sua mensagem...") },
+                        placeholder = { Text("Mensagem...") },
                         shape = RoundedCornerShape(24.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    IconButton(
-                        onClick = {
-                            if (textoMensagem.isNotBlank()) {
-                                scope.launch {
-                                    try {
-                                        val request = SendMessageRequest(
-                                            targetType = "CUSTOMER",
-                                            subject = "Chat via App",
-                                            content = textoMensagem,
-                                            customerId = idConversaReal,
-                                            conversationId = idConversaReal
-                                        )
-
-                                        val response = RetrofitClient.getMessageService(context).enviarMensagem(request)
-
-                                        if (response.isSuccessful) {
-                                            textoMensagem = ""
-                                            carregarMensagens()
-                                        } else {
-                                            Toast.makeText(context, "Erro no servidor: ${response.code()}", Toast.LENGTH_SHORT).show()
-                                        }
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "Falha de rede", Toast.LENGTH_SHORT).show()
+                    IconButton(onClick = {
+                        if (textoMensagem.isNotBlank() && idConversaReal.isNotBlank()) {
+                            scope.launch {
+                                try {
+                                    // PREENCHENDO TODOS OS 8 CAMPOS DO SEU RECORD JAVA
+                                    val req = SendMessageRequest(
+                                        targetType = "CUSTOMER",
+                                        subject = "Chat WTC",
+                                        content = textoMensagem,
+                                        customerId = idConversaReal,
+                                        segmentId = null,
+                                        groupName = null,
+                                        customerIds = null,
+                                        conversationId = idConversaReal
+                                    )
+                                    val res = RetrofitClient.getMessageService(context).enviarMensagem(req)
+                                    if (res.isSuccessful) {
+                                        textoMensagem = ""
+                                        carregar()
+                                    } else {
+                                        Log.e("WTC_DEBUG", "Erro POST: ${res.code()}")
                                     }
+                                } catch (e: Exception) {
+                                    Log.e("WTC_DEBUG", "Falha no Envio: ${e.message}")
                                 }
                             }
                         }
-                    ) {
-                        Icon(Icons.Default.Send, contentDescription = "Enviar", tint = Color(0xFF1976D2))
+                    }) {
+                        Icon(Icons.Default.Send, null, tint = Color(0xFF1976D2))
                     }
                 }
             }
         }
-    ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize().background(Color(0xFFECE5DD))) {
+    ) { p ->
+        Box(modifier = Modifier.padding(p).fillMaxSize().background(Color(0xFFECE5DD))) {
             if (isLoading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             } else if (listaMensagens.isEmpty()) {
-                Text("Nenhuma mensagem encontrada", modifier = Modifier.align(Alignment.Center), color = Color.Gray)
+                Text("Inicie a conversa!", modifier = Modifier.align(Alignment.Center), color = Color.Gray)
             } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
-                ) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
                     items(listaMensagens) { msg ->
-                        BubbleMensagem(msg)
+                        val isOp = msg.senderRole?.equals("OPERADOR", ignoreCase = true) == true
+                        BubbleChat(msg, isOp)
                     }
                 }
             }
@@ -166,22 +152,20 @@ fun MensagensScreen(clienteIdDaLista: String, clienteNomeDaLista: String) {
 }
 
 @Composable
-fun BubbleMensagem(msg: MessageResponse) {
-    val isMe = msg.senderRole?.equals("OPERADOR", ignoreCase = true) == true
-
+fun BubbleChat(msg: MessageResponse, isOp: Boolean) {
     Column(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
+        horizontalAlignment = if (isOp) Alignment.End else Alignment.Start
     ) {
         Card(
             shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = if (isMe) Color(0xFFDCF8C6) else Color.White),
+            colors = CardDefaults.cardColors(containerColor = if (isOp) Color(0xFFDCF8C6) else Color.White),
             modifier = Modifier.widthIn(max = 280.dp)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 Text(text = msg.content ?: "", fontSize = 15.sp, color = Color.Black)
                 Text(
-                    text = if (isMe) "WTC Operador" else "Cliente",
+                    text = if (isOp) "WTC Operador" else "Cliente",
                     fontSize = 10.sp,
                     color = Color.Gray,
                     modifier = Modifier.align(Alignment.End)
