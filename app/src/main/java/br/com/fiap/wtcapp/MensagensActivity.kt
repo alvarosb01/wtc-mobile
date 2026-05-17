@@ -33,7 +33,7 @@ class MensagensActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val idIntent = intent.getStringExtra("CLIENTE_ID") ?: ""
-        val nomeIntent = intent.getStringExtra("CLIENTE_NOME") ?: "Conversa"
+        val nomeIntent = intent.getStringExtra("CLIENTE_NOME") ?: "Conversa WTC"
         setContent { WTCTheme { Surface { MensagensScreen(idIntent, nomeIntent) } } }
     }
 }
@@ -46,16 +46,16 @@ fun MensagensScreen(idVindoDaIntent: String, nomeVindoDaIntent: String) {
     val listState = rememberLazyListState()
     val tokenManager = TokenManager(context)
 
-    val minhaRole = tokenManager.getRole() ?: "CLIENTE"
+    val role = tokenManager.getRole() ?: "CLIENTE"
     val meuId = tokenManager.getUserId() ?: ""
+    val idConversaReal = if (role.equals("OPERADOR", ignoreCase = true)) idVindoDaIntent else meuId
 
-    // Define qual ID usar para o GET e POST
-    val idConversaReal = if (minhaRole.equals("OPERADOR", ignoreCase = true)) idVindoDaIntent else meuId
-
+    // ESTADO REATIVO
     var listaMensagens by remember { mutableStateOf(listOf<MessageResponse>()) }
     var textoMensagem by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
 
+    // Função de carregar simplificada
     fun carregar() {
         if (idConversaReal.isBlank()) {
             isLoading = false
@@ -63,25 +63,24 @@ fun MensagensScreen(idVindoDaIntent: String, nomeVindoDaIntent: String) {
         }
         scope.launch {
             try {
-                val service = RetrofitClient.getMessageService(context)
-                val response = service.getHistorico(idConversaReal)
+                val response = RetrofitClient.getMessageService(context).getHistorico(idConversaReal)
                 if (response.isSuccessful) {
                     val mgs = response.body() ?: listOf()
                     listaMensagens = mgs
-                    Log.d("WTC_DEBUG", "Mensagens carregadas: ${mgs.size}")
-                    if (listaMensagens.isNotEmpty()) {
-                        listState.animateScrollToItem(listaMensagens.size - 1)
-                    }
+                    Log.d("WTC_DEBUG", "Sucesso no Compose! Mensagens na lista: ${listaMensagens.size}")
                 }
             } catch (e: Exception) {
                 Log.e("WTC_DEBUG", "Erro ao carregar: ${e.message}")
             } finally {
-                isLoading = false
+                isLoading = false // ISSO AQUI PARA A BOLINHA DE CARREGANDO
             }
         }
     }
 
-    LaunchedEffect(Unit) { carregar() }
+    // Dispara o carregamento inicial
+    LaunchedEffect(Unit) {
+        carregar()
+    }
 
     Scaffold(
         topBar = {
@@ -97,33 +96,28 @@ fun MensagensScreen(idVindoDaIntent: String, nomeVindoDaIntent: String) {
                         value = textoMensagem,
                         onValueChange = { textoMensagem = it },
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text("Mensagem...") },
-                        shape = RoundedCornerShape(24.dp)
+                        placeholder = { Text("Digite aqui...") },
+                        shape = RoundedCornerShape(24.dp),
+                        enabled = !isLoading
                     )
                     IconButton(onClick = {
-                        if (textoMensagem.isNotBlank() && idConversaReal.isNotBlank()) {
+                        if (textoMensagem.isNotBlank()) {
                             scope.launch {
                                 try {
-                                    // PREENCHENDO TODOS OS 8 CAMPOS DO SEU RECORD JAVA
                                     val req = SendMessageRequest(
                                         targetType = "CUSTOMER",
-                                        subject = "Chat WTC",
+                                        subject = "Chat",
                                         content = textoMensagem,
                                         customerId = idConversaReal,
-                                        segmentId = null,
-                                        groupName = null,
-                                        customerIds = null,
                                         conversationId = idConversaReal
                                     )
                                     val res = RetrofitClient.getMessageService(context).enviarMensagem(req)
                                     if (res.isSuccessful) {
                                         textoMensagem = ""
-                                        carregar()
-                                    } else {
-                                        Log.e("WTC_DEBUG", "Erro POST: ${res.code()}")
+                                        carregar() // Recarrega para mostrar a nova
                                     }
                                 } catch (e: Exception) {
-                                    Log.e("WTC_DEBUG", "Falha no Envio: ${e.message}")
+                                    Toast.makeText(context, "Falha ao enviar", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
@@ -136,14 +130,23 @@ fun MensagensScreen(idVindoDaIntent: String, nomeVindoDaIntent: String) {
     ) { p ->
         Box(modifier = Modifier.padding(p).fillMaxSize().background(Color(0xFFECE5DD))) {
             if (isLoading) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                // Enquanto isLoading for true, mostra a bolinha
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color(0xFF1976D2))
             } else if (listaMensagens.isEmpty()) {
-                Text("Inicie a conversa!", modifier = Modifier.align(Alignment.Center), color = Color.Gray)
+                // Se terminou de carregar e não tem nada
+                Text("Sem mensagens. Inicie o papo!", modifier = Modifier.align(Alignment.Center), color = Color.Gray)
             } else {
-                LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
+                // SE TEM MENSAGEM, MOSTRA A LISTA!
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 12.dp)
+                ) {
                     items(listaMensagens) { msg ->
-                        val isOp = msg.senderRole?.equals("OPERADOR", ignoreCase = true) == true
-                        BubbleChat(msg, isOp)
+                        // Verifica se quem mandou foi o Operador
+                        val isOp = msg.senderRole?.contains("OPERADOR", ignoreCase = true) == true
+                        BubbleChatFinal(msg, isOp)
                     }
                 }
             }
@@ -152,15 +155,15 @@ fun MensagensScreen(idVindoDaIntent: String, nomeVindoDaIntent: String) {
 }
 
 @Composable
-fun BubbleChat(msg: MessageResponse, isOp: Boolean) {
+fun BubbleChatFinal(msg: MessageResponse, isOp: Boolean) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isOp) Alignment.End else Alignment.Start
     ) {
         Card(
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(containerColor = if (isOp) Color(0xFFDCF8C6) else Color.White),
-            modifier = Modifier.widthIn(max = 280.dp)
+            modifier = Modifier.widthIn(max = 300.dp)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 Text(text = msg.content ?: "", fontSize = 15.sp, color = Color.Black)
