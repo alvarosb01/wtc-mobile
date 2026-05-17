@@ -1,5 +1,6 @@
 package br.com.fiap.wtcapp
 
+import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
@@ -19,6 +20,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.fiap.wtcapp.ui.theme.WTCTheme
+import br.com.fiap.wtcapp.model.LoginRequest
+import br.com.fiap.wtcapp.network.RetrofitClient
+import br.com.fiap.wtcapp.network.TokenManager
+import kotlinx.coroutines.launch
 
 class LoginActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -36,9 +41,13 @@ class LoginActivity : ComponentActivity() {
 @Composable
 fun LoginScreen() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     var email by remember { mutableStateOf("") }
     var senha by remember { mutableStateOf("") }
-    var perfilOperador by remember { mutableStateOf(true) }
+
+    // Variável para controle de UI
+    var isLoading by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -49,42 +58,28 @@ fun LoginScreen() {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "Login",
-            fontSize = 28.sp,
+            text = "WTC São Paulo",
+            fontSize = 32.sp,
             fontWeight = FontWeight.Bold,
             color = Color(0xFF1976D2),
-            modifier = Modifier.padding(bottom = 24.dp)
+            modifier = Modifier.padding(bottom = 8.dp)
         )
 
-        // Alternância de perfil
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center
-        ) {
-            TextButton(onClick = { perfilOperador = true }) {
-                Text(
-                    "Operador",
-                    fontWeight = if (perfilOperador) FontWeight.Bold else FontWeight.Normal,
-                    color = if (perfilOperador) Color(0xFF1976D2) else Color.Gray
-                )
-            }
-            TextButton(onClick = { perfilOperador = false }) {
-                Text(
-                    "Cliente",
-                    fontWeight = if (!perfilOperador) FontWeight.Bold else FontWeight.Normal,
-                    color = if (!perfilOperador) Color(0xFF1976D2) else Color.Gray
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "Faça login para continuar",
+            fontSize = 16.sp,
+            color = Color.Gray,
+            modifier = Modifier.padding(bottom = 32.dp)
+        )
 
         OutlinedTextField(
             value = email,
             onValueChange = { email = it },
             label = { Text("E-mail") },
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(12.dp),
+            enabled = !isLoading,
+            singleLine = true
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -95,27 +90,84 @@ fun LoginScreen() {
             label = { Text("Senha") },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
-            visualTransformation = PasswordVisualTransformation()
+            visualTransformation = PasswordVisualTransformation(),
+            enabled = !isLoading,
+            singleLine = true
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(32.dp))
 
         Button(
             onClick = {
                 if (email.isBlank() || senha.isBlank()) {
                     Toast.makeText(context, "Preencha todos os campos", Toast.LENGTH_SHORT).show()
                 } else {
-                    // Navegar para Home (simulado)
-                    context.startActivity(Intent(context, HomeActivity::class.java))
+                    isLoading = true
+                    scope.launch {
+                        try {
+                            // No login enviamos apenas email e senha.
+                            // A Role quem nos diz é o servidor na resposta.
+                            val request = LoginRequest(email = email, senha = senha)
+                            val response = RetrofitClient.authService.login(request)
+
+                            if (response.isSuccessful) {
+                                val loginResponse = response.body()
+
+                                if (loginResponse != null) {
+                                    val token = loginResponse.token
+                                    val role = loginResponse.role
+                                    val idDoBanco = loginResponse.userId // <--- PEGAMOS O ID QUE VEIO DO JAVA
+
+                                    val tokenManager = TokenManager(context)
+
+                                    // 2. SALVAMOS O ID REAL QUE VEIO DO SERVIDOR (Não use String()!)
+                                    tokenManager.saveSession(token, role, idDoBanco)
+
+                                    println("LOGIN SUCESSO: Role $role e ID $idDoBanco salvos")
+
+                                    Toast.makeText(context, "Bem-vindo!", Toast.LENGTH_SHORT).show()
+                                    context.startActivity(Intent(context, HomeActivity::class.java))
+                                    (context as? Activity)?.finish()
+                                }
+                            } else {
+                                Toast.makeText(context, "Credenciais inválidas", Toast.LENGTH_LONG).show()
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Erro: ${e.message}", Toast.LENGTH_LONG).show()
+                        } finally {
+                            isLoading = false
+                        }
+                    }
                 }
             },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(50.dp),
             shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0))
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0)),
+            enabled = !isLoading
         ) {
-            Text("Entrar", color = Color.White, fontWeight = FontWeight.Bold)
+            if (isLoading) {
+                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
+            } else {
+                Text("Entrar", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // LINK PARA CADASTRO DE NOVO USUÁRIO
+        TextButton(
+            onClick = {
+                context.startActivity(Intent(context, CadastroUsuarioActivity::class.java))
+            },
+            enabled = !isLoading
+        ) {
+            Text(
+                text = "Não tem uma conta? Cadastre-se aqui",
+                color = Color(0xFF1976D2),
+                fontWeight = FontWeight.SemiBold
+            )
         }
     }
 }
